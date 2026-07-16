@@ -1,0 +1,12 @@
+// 最小構成。secret-verify (frontend-ci) が wrangler config の存在を前提に
+// するためこの時点から置く。routes / KV binding / secrets は Issue #1 以降で追加。
+{
+  "name": "gmail-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-16",
+  // ci-workflows/secret-verify-gcp.yml が読む宣言 (org 規約: secrets 不要でも
+  // 明示 [] を宣言して監査可能にする)。PR2 で GOOGLE_CLIENT_SECRET 等を追加。
+  "secrets": {
+    "required": []
+  }
+}
