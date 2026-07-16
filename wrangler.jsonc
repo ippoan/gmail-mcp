@@ -1,12 +1,29 @@
-// 最小構成。secret-verify (frontend-ci) が wrangler config の存在を前提に
-// するためこの時点から置く。routes / KV binding / secrets は Issue #1 以降で追加。
+// staging (`gmail-mcp-staging`) が `gmail-mcp.ippoan.org` を bind する実稼働 env
+// (ci-dashboard / secrets-inventory と同じ staging=prod パターン)。top-level は
+// `wrangler dev` / 予約 production 用。
 {
   "name": "gmail-mcp",
+  "account_id": "24b45709d060d957340180e995f0d373",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-16",
+  "observability": { "enabled": true },
   // ci-workflows/secret-verify-gcp.yml が読む宣言 (org 規約: secrets 不要でも
   // 明示 [] を宣言して監査可能にする)。PR2 で GOOGLE_CLIENT_SECRET 等を追加。
   "secrets": {
     "required": []
+  },
+  "env": {
+    "staging": {
+      "name": "gmail-mcp-staging",
+      "account_id": "24b45709d060d957340180e995f0d373",
+      "workers_dev": true,
+      "observability": { "enabled": true },
+      "routes": [
+        {
+          "pattern": "gmail-mcp.ippoan.org",
+          "custom_domain": true
+        }
+      ]
+    }
   }
 }

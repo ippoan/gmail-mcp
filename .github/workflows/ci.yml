@@ -23,7 +23,8 @@ jobs:
       # @ippoan/mcp-cf-workers (GitHub Packages) を install するための
       # registry + NODE_AUTH_TOKEN セットアップ (ci-dashboard#118 と同じ理由)
       npm_scope: '@ippoan'
-      # Worker 実体（wrangler.toml / entry point）がまだ無い。
-      # deploy は Issue #1 の createWorkerMcp スケルトンが入る PR で有効化する
-      has_deploy: false
+      # staging (`gmail-mcp-staging` + gmail-mcp.ippoan.org) が実稼働 env。
+      # ci-dashboard と同じ staging=prod パターン
+      deploy_staging_script: 'npx wrangler deploy --env staging'
+      deploy_release_script: 'npx wrangler deploy'
     secrets: inherit
