@@ -22,7 +22,14 @@ describe("tools/list surface", () => {
     registerTools(server, testEnv());
     // ツールを追加したら意図的にこの snapshot を更新すること。
     // send / trash 系が現れる変更はレビューで必ず弾く。
-    expect(names).toEqual(["list_accounts", "ping"]);
+    expect(names).toEqual([
+      "list_accounts",
+      "search_threads",
+      "get_thread",
+      "get_message",
+      "list_labels",
+      "ping",
+    ]);
   });
 
   it("has no send-like tool names", () => {
