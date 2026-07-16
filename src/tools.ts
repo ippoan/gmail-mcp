@@ -3,8 +3,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { assertNoForbiddenTools } from "./meta.js";
 import { listAccountSummaries, getAccount, reauthUrl } from "./accounts.js";
 import { refreshAccessToken } from "./google.js";
-import { accessTokenFor, gmailGet, GmailAuthError } from "./gmail-api.js";
+import { accessTokenFor, gmailGet, gmailPost, gmailDelete, GmailAuthError } from "./gmail-api.js";
 import { extractBody, header, type GmailPart } from "./mime.js";
+import { buildRawMessage, replySubject } from "./rfc822.js";
 import type { Env } from "./types.js";
 
 // 全ツール共通の account 引数 (マルチアカウント対応、省略時 default)
@@ -57,6 +58,23 @@ interface ThreadResponse {
 
 interface LabelsResponse {
   labels?: { id: string; name: string; type?: string }[];
+}
+
+interface DraftResponse {
+  id: string;
+  message?: { id?: string; threadId?: string; payload?: GmailPart };
+}
+
+interface DraftsListResponse {
+  drafts?: { id: string; message?: { id?: string; threadId?: string } }[];
+}
+
+// TRASH / SPAM は add / remove とも拒否 (決定: 削除系は delete_draft のみ、
+// ゴミ箱移動は将来も含め実装しない)。
+const FORBIDDEN_LABEL_IDS = new Set(["TRASH", "SPAM"]);
+
+function forbiddenLabels(ids: string[] | undefined): string[] {
+  return (ids ?? []).filter((id) => FORBIDDEN_LABEL_IDS.has(id.toUpperCase()));
 }
 
 function messageSummary(message: GmailMessage) {
@@ -237,6 +255,162 @@ export function registerTools(server: McpServer, env: Env): void {
         const resp = await gmailGet<LabelsResponse>(token, "labels");
         return jsonResult({
           labels: (resp.labels ?? []).map((l) => ({ id: l.id, name: l.name, type: l.type })),
+        });
+      }),
+  );
+
+  register(
+    "create_draft",
+    {
+      description:
+        "メール下書きを作成する (送信はしない — send 系はこのサーバーに存在しない。" +
+        "送信はユーザー自身が Gmail UI で行う)。thread_id を渡すと返信下書きとして" +
+        "元スレッドにぶら下がる (In-Reply-To / References を自動設定、件名に Re: を補完)。",
+      inputSchema: {
+        to: z.string().describe("宛先 (カンマ区切り可)"),
+        subject: z.string().describe("件名 (返信時は Re: が無ければ自動付与)"),
+        body: z.string().describe("本文 (plain text)"),
+        thread_id: z.string().optional().describe("返信先スレッド ID (省略時は新規メール)"),
+        cc: z.string().optional().describe("Cc (カンマ区切り可)"),
+        account: accountArg,
+      },
+    },
+    async ({ to, subject, body, thread_id, cc, account }) =>
+      run(async () => {
+        const token = await accessTokenFor(env, account ?? "default");
+
+        let inReplyTo: string | undefined;
+        let references: string | undefined;
+        let finalSubject = subject;
+        if (thread_id) {
+          const thread = await gmailGet<ThreadResponse>(token, `threads/${thread_id}`, {
+            format: "metadata",
+            metadataHeaders: ["Message-ID", "References", "Subject"],
+          });
+          const last = thread.messages?.[thread.messages.length - 1];
+          inReplyTo = header(last?.payload?.headers, "Message-ID");
+          references = header(last?.payload?.headers, "References");
+          finalSubject = replySubject(subject);
+        }
+
+        const raw = buildRawMessage({
+          to,
+          cc,
+          subject: finalSubject,
+          body,
+          inReplyTo,
+          references,
+        });
+        const draft = await gmailPost<DraftResponse>(token, "drafts", {
+          message: { raw, ...(thread_id ? { threadId: thread_id } : {}) },
+        });
+        return jsonResult({
+          draft_id: draft.id,
+          message_id: draft.message?.id,
+          thread_id: draft.message?.threadId,
+          gmail_url: "https://mail.google.com/mail/u/0/#drafts",
+          note: "下書きを作成しました。内容を確認して送信するのは Gmail UI で行ってください。",
+        });
+      }),
+  );
+
+  register(
+    "list_drafts",
+    {
+      description: "下書き一覧 (件名・宛先・下書き ID)。",
+      inputSchema: {
+        max_results: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe("最大件数 (default 10, 上限 50)"),
+        account: accountArg,
+      },
+    },
+    async ({ max_results, account }) =>
+      run(async () => {
+        const token = await accessTokenFor(env, account ?? "default");
+        const list = await gmailGet<DraftsListResponse>(token, "drafts", {
+          maxResults: max_results ?? 10,
+        });
+        const drafts = await Promise.all(
+          (list.drafts ?? []).map(async (d) => {
+            const draft = await gmailGet<DraftResponse>(token, `drafts/${d.id}`, {
+              format: "metadata",
+            });
+            const headers = draft.message?.payload?.headers;
+            return {
+              draft_id: d.id,
+              thread_id: draft.message?.threadId,
+              to: header(headers, "To"),
+              subject: header(headers, "Subject"),
+            };
+          }),
+        );
+        return jsonResult({ drafts });
+      }),
+  );
+
+  register(
+    "delete_draft",
+    {
+      description:
+        "下書きを削除する (削除系ツールはこれが唯一。メッセージ/スレッドの削除・ゴミ箱移動はできない)。",
+      inputSchema: {
+        draft_id: z.string().describe("list_drafts / create_draft が返した draft_id"),
+        account: accountArg,
+      },
+    },
+    async ({ draft_id, account }) =>
+      run(async () => {
+        const token = await accessTokenFor(env, account ?? "default");
+        await gmailDelete(token, `drafts/${draft_id}`);
+        return jsonResult({ ok: true, deleted_draft_id: draft_id });
+      }),
+  );
+
+  register(
+    "modify_labels",
+    {
+      description:
+        "スレッドのラベルを付け外しする。アーカイブは remove: [\"INBOX\"]。" +
+        "TRASH / SPAM は add / remove とも拒否される (ゴミ箱移動・スパム操作は非対応)。" +
+        "ユーザーラベルの ID は list_labels で確認する。",
+      inputSchema: {
+        thread_id: z.string().describe("対象スレッド ID"),
+        add: z.array(z.string()).optional().describe("付与するラベル ID"),
+        remove: z.array(z.string()).optional().describe("除去するラベル ID"),
+        account: accountArg,
+      },
+    },
+    async ({ thread_id, add, remove, account }) =>
+      run(async () => {
+        const bad = [...forbiddenLabels(add), ...forbiddenLabels(remove)];
+        if (bad.length > 0) {
+          return errorResult(
+            `拒否: ${bad.join(", ")} は操作できません。` +
+              "ゴミ箱/スパム操作はこのサーバーでは実装していません (削除系は delete_draft のみ)。",
+          );
+        }
+        if ((add?.length ?? 0) === 0 && (remove?.length ?? 0) === 0) {
+          return errorResult("add / remove のどちらかにラベル ID を指定してください。");
+        }
+        const token = await accessTokenFor(env, account ?? "default");
+        const thread = await gmailPost<ThreadResponse>(token, `threads/${thread_id}/modify`, {
+          addLabelIds: add ?? [],
+          removeLabelIds: remove ?? [],
+        });
+        const labels = new Set<string>();
+        for (const m of thread.messages ?? []) {
+          for (const l of m.labelIds ?? []) labels.add(l);
+        }
+        return jsonResult({
+          thread_id,
+          added: add ?? [],
+          removed: remove ?? [],
+          labels_now: [...labels].sort(),
         });
       }),
   );
