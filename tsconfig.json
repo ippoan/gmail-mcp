@@ -3,13 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "WebWorker"],
+    "lib": ["ES2022"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": []
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src", "test"]
 }
