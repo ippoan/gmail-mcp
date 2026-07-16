@@ -9,7 +9,11 @@
   "observability": { "enabled": true },
   "vars": {
     "PUBLIC_ORIGIN": "https://gmail-mcp.ippoan.org",
-    "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com"
+    "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com",
+    // org の実稼働 AS は auth-staging (staging=prod パターン)。lib default の
+    // auth.ippoan.org (prod) は MCP_OAUTH_KV 未設定で DCR が 503 になる。
+    // security-inventory / ref-files も auth-staging を指している。
+    "AUTH_WORKER_ORIGIN": "https://auth-staging.ippoan.org"
   },
   // アカウントレジストリ (`account:<alias>` = email + refresh_token) と
   // OAuth state nonce (`state:<nonce>`, TTL 600s)。refresh_token は動的な値
@@ -48,7 +52,8 @@
       ],
       "vars": {
         "PUBLIC_ORIGIN": "https://gmail-mcp.ippoan.org",
-        "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com"
+        "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com",
+        "AUTH_WORKER_ORIGIN": "https://auth-staging.ippoan.org"
       },
       "kv_namespaces": [
         {
