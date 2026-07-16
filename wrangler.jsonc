@@ -7,10 +7,32 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-16",
   "observability": { "enabled": true },
-  // ci-workflows/secret-verify-gcp.yml が読む宣言 (org 規約: secrets 不要でも
-  // 明示 [] を宣言して監査可能にする)。PR2 で GOOGLE_CLIENT_SECRET 等を追加。
+  "vars": {
+    "PUBLIC_ORIGIN": "https://gmail-mcp.ippoan.org",
+    "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com"
+  },
+  // アカウントレジストリ (`account:<alias>` = email + refresh_token) と
+  // OAuth state nonce (`state:<nonce>`, TTL 600s)。refresh_token は動的な値
+  // (テストモードで 7 日失効 → /oauth/callback が再保存) のため KV に置く。
+  // ci-dashboard が GitHub OAuth token を KV に置くのと同じ使い分け。
+  "kv_namespaces": [
+    {
+      "binding": "ACCOUNTS",
+      "id": "da762434fe1643cfa2047829e61a282c"
+    }
+  ],
+  // Google OAuth client secret (静的)。GCP Secret Manager を source of truth に
+  // secrets-inventory 経由で投入する。
+  "secrets_store_secrets": [
+    {
+      "binding": "GOOGLE_CLIENT_SECRET",
+      "store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+      "secret_name": "gmail-mcp-google-client-secret"
+    }
+  ],
+  // ci-workflows/secret-verify-gcp.yml が読む宣言 (org 規約)。
   "secrets": {
-    "required": []
+    "required": ["gmail-mcp-google-client-secret"]
   },
   "env": {
     "staging": {
@@ -22,6 +44,23 @@
         {
           "pattern": "gmail-mcp.ippoan.org",
           "custom_domain": true
+        }
+      ],
+      "vars": {
+        "PUBLIC_ORIGIN": "https://gmail-mcp.ippoan.org",
+        "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "ACCOUNTS",
+          "id": "da762434fe1643cfa2047829e61a282c"
+        }
+      ],
+      "secrets_store_secrets": [
+        {
+          "binding": "GOOGLE_CLIENT_SECRET",
+          "store_id": "bd7bc91a3e5f4111add4acf6cb4b8733",
+          "secret_name": "gmail-mcp-google-client-secret"
         }
       ]
     }

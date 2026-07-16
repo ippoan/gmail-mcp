@@ -3,6 +3,7 @@ import { createWorkerMcp } from "@ippoan/mcp-cf-workers";
 import { bindingJwtMiddleware } from "@ippoan/mcp-cf-workers/auth/binding-jwt-hono";
 import type { BindingJwtClaims } from "@ippoan/mcp-cf-workers/auth/binding-jwt";
 import { registerTools } from "./tools.js";
+import { oauthRoutes } from "./oauth.js";
 import { SERVER_NAME } from "./meta.js";
 import type { Env } from "./types.js";
 
@@ -16,6 +17,10 @@ const app = new Hono<{ Bindings: Env; Variables: { bindingJwt: BindingJwtClaims 
 
 // CF Access の前段でも通す軽い生存確認 (認証なし・情報なし)
 app.get("/healthz", (c) => c.json({ ok: true }));
+
+// アカウント追加/再認証フロー。エッジの CF Access host app (policy: me) が
+// 人間認証を担う (Google からの redirect も同一ブラウザの Access session で通る)
+app.route("/oauth", oauthRoutes);
 
 // /mcp は CF Access 側で bypassAll (MCP client は browser flow を踏めない)。
 // 認証は auth-worker mint の binding_jwt を /mcp/introspect に転送して検証する
