@@ -28,6 +28,10 @@ describe("tools/list surface", () => {
       "get_thread",
       "get_message",
       "list_labels",
+      "create_draft",
+      "list_drafts",
+      "delete_draft",
+      "modify_labels",
       "ping",
     ]);
   });

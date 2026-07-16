@@ -56,3 +56,36 @@ export async function gmailGet<T>(
   }
   return (await resp.json()) as T;
 }
+
+/** Gmail API POST (JSON body)。 */
+export async function gmailPost<T>(
+  accessToken: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const resp = await fetch(`${API_BASE}/${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Gmail API ${path} failed: HTTP ${resp.status} ${text.slice(0, 300)}`);
+  }
+  return (await resp.json()) as T;
+}
+
+/** Gmail API DELETE (draft 専用 — 削除系はこれが唯一の経路)。 */
+export async function gmailDelete(accessToken: string, path: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/${path}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!resp.ok && resp.status !== 204) {
+    const text = await resp.text();
+    throw new Error(`Gmail API ${path} failed: HTTP ${resp.status} ${text.slice(0, 300)}`);
+  }
+}
