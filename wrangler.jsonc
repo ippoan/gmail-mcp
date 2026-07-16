@@ -3,5 +3,10 @@
 {
   "name": "gmail-mcp",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-16"
+  "compatibility_date": "2026-07-16",
+  // ci-workflows/secret-verify-gcp.yml が読む宣言 (org 規約: secrets 不要でも
+  // 明示 [] を宣言して監査可能にする)。PR2 で GOOGLE_CLIENT_SECRET 等を追加。
+  "secrets": {
+    "required": []
+  }
 }
