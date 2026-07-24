@@ -15,6 +15,15 @@
     // security-inventory / ref-files も auth-staging を指している。
     "AUTH_WORKER_ORIGIN": "https://auth-staging.ippoan.org"
   },
+  // introspect (/mcp/introspect) は service binding経由 (同一account、Refs
+  // ippoan/auth-worker#435 / ippoan/mcp-cf-workers#60,#63)。上のAUTH_WORKER_ORIGIN
+  // は変更しない (WWW-Authenticateのresource_metadata表示に引き続き使う)。
+  "services": [
+    {
+      "binding": "AUTH_WORKER",
+      "service": "auth-worker-staging"
+    }
+  ],
   // アカウントレジストリ (`account:<alias>` = email + refresh_token) と
   // OAuth state nonce (`state:<nonce>`, TTL 600s)。refresh_token は動的な値
   // (テストモードで 7 日失効 → /oauth/callback が再保存) のため KV に置く。
@@ -55,6 +64,12 @@
         "GOOGLE_CLIENT_ID": "747065218280-o3r2c16h8e5023393hjiam2o87f495df.apps.googleusercontent.com",
         "AUTH_WORKER_ORIGIN": "https://auth-staging.ippoan.org"
       },
+      "services": [
+        {
+          "binding": "AUTH_WORKER",
+          "service": "auth-worker-staging"
+        }
+      ],
       "kv_namespaces": [
         {
           "binding": "ACCOUNTS",
