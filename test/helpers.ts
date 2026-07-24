@@ -27,12 +27,20 @@ export function fakeKv(): KVNamespace {
   return kv as unknown as KVNamespace;
 }
 
+/** AUTH_WORKER service binding の最小 stub (未使用時は呼ばれない)。 */
+function fakeAuthWorkerBinding(): Fetcher {
+  return {
+    fetch: async () => new Response(null, { status: 501 }),
+  } as unknown as Fetcher;
+}
+
 export function testEnv(overrides: Partial<Env> = {}): Env {
   return {
     PUBLIC_ORIGIN: "https://gmail-mcp.example.test",
     GOOGLE_CLIENT_ID: "test-client-id",
     GOOGLE_CLIENT_SECRET: "test-client-secret",
     ACCOUNTS: fakeKv(),
+    AUTH_WORKER: fakeAuthWorkerBinding(),
     ...overrides,
   };
 }
