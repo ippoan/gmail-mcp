@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createWorkerMcp } from "@ippoan/mcp-cf-workers";
+import { createWorkerMcpV2 } from "@ippoan/mcp-cf-workers";
 import { bindingJwtMiddleware } from "@ippoan/mcp-cf-workers/auth/binding-jwt-hono";
 import type { BindingJwtClaims } from "@ippoan/mcp-cf-workers/auth/binding-jwt";
 import { registerTools } from "./tools.js";
@@ -7,7 +7,9 @@ import { oauthRoutes } from "./oauth.js";
 import { SERVER_NAME } from "./meta.js";
 import type { Env } from "./types.js";
 
-const mcp = createWorkerMcp<Env>({
+// MCP 2026-07-28 (SDK v2) factory。legacy (2025年代 initialize) クライアントも
+// 同一エンドポイントで serve されるため、既存 connector は無変更で動く (Issue #15)。
+const mcp = createWorkerMcpV2<Env>({
   name: SERVER_NAME,
   version: "0.1.0",
   registerTools,
