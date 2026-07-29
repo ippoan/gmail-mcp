@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { registerTools } from "../src/tools.js";
 import { testEnv } from "./helpers.js";
 

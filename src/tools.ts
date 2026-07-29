@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { assertNoForbiddenTools } from "./meta.js";
 import { listAccountSummaries, getAccount, reauthUrl } from "./accounts.js";
 import { refreshAccessToken } from "./google.js";
@@ -99,9 +99,22 @@ function messageSummary(message: GmailMessage) {
 // draft / label 系ツールは Issue #4 で追加する。
 export function registerTools(server: McpServer, env: Env): void {
   const names: string[] = [];
-  const register: McpServer["registerTool"] = (name, config, handler) => {
+  // SDK v2 の registerTool は overload 付き generic のため、間接代入
+  // (`McpServer["registerTool"]`) では引数型が推論されない。呼び出し側で
+  // 使う形 (description + z.object の inputSchema) に絞った generic で包み、
+  // forward 箇所のみ cast する (cf-access-mcp の RegisterableServer と同じ発想。
+  // 呼び出し側の args 推論は register 自身の signature が担保する)。
+  const register = <Schema extends z.ZodType>(
+    name: string,
+    config: { description: string; inputSchema: Schema },
+    handler: (args: z.infer<Schema>) => Promise<ToolResult> | ToolResult,
+  ) => {
     names.push(name);
-    return server.registerTool(name, config, handler);
+    return server.registerTool(
+      name,
+      config as { description: string; inputSchema: z.ZodType },
+      handler as (args: unknown) => Promise<ToolResult>,
+    );
   };
 
   register(
@@ -111,12 +124,12 @@ export function registerTools(server: McpServer, env: Env): void {
         "登録済み Gmail アカウント一覧 (エイリアス・メールアドレス・スコープ・認証状態)。" +
         "check_auth=true で各アカウントの refresh token が生きているか実際に確認し、" +
         "失効していれば再認証 URL を返す (テストモード運用のため 7 日で失効する)。",
-      inputSchema: {
+      inputSchema: z.object({
         check_auth: z
           .boolean()
           .optional()
           .describe("true で refresh token の生存確認を行う (アカウント毎に Google へ 1 call)"),
-      },
+      }),
     },
     async ({ check_auth }) => {
       const summaries = await listAccountSummaries(env);
@@ -152,7 +165,7 @@ export function registerTools(server: McpServer, env: Env): void {
       description:
         "Gmail 検索構文でスレッドを検索する (例: 'from:foo@example.com newer_than:7d is:unread')。" +
         "各スレッドの件名・差出人・日時・snippet を返す。本文は get_thread で取得する。",
-      inputSchema: {
+      inputSchema: z.object({
         query: z.string().describe("Gmail 検索構文のクエリ"),
         max_results: z
           .number()
@@ -162,7 +175,7 @@ export function registerTools(server: McpServer, env: Env): void {
           .optional()
           .describe("最大件数 (default 10, 上限 50)"),
         account: accountArg,
-      },
+      }),
     },
     async ({ query, max_results, account }) =>
       run(async () => {
@@ -204,10 +217,10 @@ export function registerTools(server: McpServer, env: Env): void {
       description:
         "スレッド内の全メッセージ (ヘッダ・本文・添付メタ) を取得する。本文は text/plain 優先、" +
         "無ければ HTML をテキスト化。添付はメタ情報のみ (ダウンロード非対応)。",
-      inputSchema: {
+      inputSchema: z.object({
         thread_id: z.string().describe("search_threads が返した thread_id"),
         account: accountArg,
-      },
+      }),
     },
     async ({ thread_id, account }) =>
       run(async () => {
@@ -228,10 +241,10 @@ export function registerTools(server: McpServer, env: Env): void {
       description:
         "単一メッセージの本文・ヘッダ・添付メタを取得する。本文は text/plain 優先、" +
         "無ければ HTML をテキスト化。",
-      inputSchema: {
+      inputSchema: z.object({
         message_id: z.string().describe("メッセージ ID"),
         account: accountArg,
-      },
+      }),
     },
     async ({ message_id, account }) =>
       run(async () => {
@@ -247,7 +260,7 @@ export function registerTools(server: McpServer, env: Env): void {
     "list_labels",
     {
       description: "ラベル一覧 (システムラベル + ユーザーラベル)。",
-      inputSchema: { account: accountArg },
+      inputSchema: z.object({ account: accountArg }),
     },
     async ({ account }) =>
       run(async () => {
@@ -266,14 +279,14 @@ export function registerTools(server: McpServer, env: Env): void {
         "メール下書きを作成する (送信はしない — send 系はこのサーバーに存在しない。" +
         "送信はユーザー自身が Gmail UI で行う)。thread_id を渡すと返信下書きとして" +
         "元スレッドにぶら下がる (In-Reply-To / References を自動設定、件名に Re: を補完)。",
-      inputSchema: {
+      inputSchema: z.object({
         to: z.string().describe("宛先 (カンマ区切り可)"),
         subject: z.string().describe("件名 (返信時は Re: が無ければ自動付与)"),
         body: z.string().describe("本文 (plain text)"),
         thread_id: z.string().optional().describe("返信先スレッド ID (省略時は新規メール)"),
         cc: z.string().optional().describe("Cc (カンマ区切り可)"),
         account: accountArg,
-      },
+      }),
     },
     async ({ to, subject, body, thread_id, cc, account }) =>
       run(async () => {
@@ -318,7 +331,7 @@ export function registerTools(server: McpServer, env: Env): void {
     "list_drafts",
     {
       description: "下書き一覧 (件名・宛先・下書き ID)。",
-      inputSchema: {
+      inputSchema: z.object({
         max_results: z
           .number()
           .int()
@@ -327,7 +340,7 @@ export function registerTools(server: McpServer, env: Env): void {
           .optional()
           .describe("最大件数 (default 10, 上限 50)"),
         account: accountArg,
-      },
+      }),
     },
     async ({ max_results, account }) =>
       run(async () => {
@@ -358,10 +371,10 @@ export function registerTools(server: McpServer, env: Env): void {
     {
       description:
         "下書きを削除する (削除系ツールはこれが唯一。メッセージ/スレッドの削除・ゴミ箱移動はできない)。",
-      inputSchema: {
+      inputSchema: z.object({
         draft_id: z.string().describe("list_drafts / create_draft が返した draft_id"),
         account: accountArg,
-      },
+      }),
     },
     async ({ draft_id, account }) =>
       run(async () => {
@@ -378,12 +391,12 @@ export function registerTools(server: McpServer, env: Env): void {
         "スレッドのラベルを付け外しする。アーカイブは remove: [\"INBOX\"]。" +
         "TRASH / SPAM は add / remove とも拒否される (ゴミ箱移動・スパム操作は非対応)。" +
         "ユーザーラベルの ID は list_labels で確認する。",
-      inputSchema: {
+      inputSchema: z.object({
         thread_id: z.string().describe("対象スレッド ID"),
         add: z.array(z.string()).optional().describe("付与するラベル ID"),
         remove: z.array(z.string()).optional().describe("除去するラベル ID"),
         account: accountArg,
-      },
+      }),
     },
     async ({ thread_id, add, remove, account }) =>
       run(async () => {
@@ -420,7 +433,7 @@ export function registerTools(server: McpServer, env: Env): void {
     {
       description:
         "疎通確認。message をそのまま echo する。認証 (binding_jwt) が通っていればこのツールに到達できる。",
-      inputSchema: { message: z.string().optional().describe("echo する文字列") },
+      inputSchema: z.object({ message: z.string().optional().describe("echo する文字列") }),
     },
     async ({ message }) => ({
       content: [{ type: "text", text: `pong${message ? `: ${message}` : ""}` }],

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { registerTools } from "../src/tools.js";
 import { putAccount } from "../src/accounts.js";
 import type { Env } from "../src/types.js";
