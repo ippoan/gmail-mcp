@@ -95,6 +95,7 @@ describe("extractBody", () => {
         plainPart("see attached"),
         {
           mimeType: "application/pdf",
+          partId: "1",
           filename: "report.pdf",
           body: { size: 12345, attachmentId: "att-1" },
         },
@@ -103,7 +104,7 @@ describe("extractBody", () => {
     const result = extractBody(payload);
     expect(result.text).toBe("see attached");
     expect(result.attachments).toEqual([
-      { filename: "report.pdf", mimeType: "application/pdf", size: 12345 },
+      { part_id: "1", filename: "report.pdf", mimeType: "application/pdf", size: 12345 },
     ]);
   });
 

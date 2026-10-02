@@ -27,6 +27,7 @@ describe("tools/list surface", () => {
       "search_threads",
       "get_thread",
       "get_message",
+      "get_attachment",
       "list_labels",
       "create_draft",
       "list_drafts",

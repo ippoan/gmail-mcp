@@ -1,6 +1,6 @@
 // Gmail API (format=full) の payload から本文テキストと添付メタを取り出す。
 // 方針 (Issue #3): text/plain 優先、無ければ text/html をタグ除去、
-// 添付はメタ情報のみ (ダウンロードは v1 スコープ外)。
+// 添付はメタ情報のみ。中身は get_attachment が part_id で取りに行く (Issue #19)。
 
 export interface GmailHeader {
   name: string;
@@ -23,6 +23,8 @@ export interface GmailPart {
 }
 
 export interface AttachmentMeta {
+  /** get_attachment に渡す ID。Gmail の attachmentId は取得のたびに変わるので partId を使う。 */
+  part_id: string;
   filename: string;
   mimeType: string;
   size: number;
@@ -117,6 +119,26 @@ function walk(part: GmailPart, visit: (p: GmailPart) => void): void {
   for (const child of part.parts ?? []) walk(child, visit);
 }
 
+/** payload から partId が一致する添付パートを探す (本文パートは対象外)。 */
+export function findAttachmentPart(
+  payload: GmailPart | undefined,
+  partId: string,
+): GmailPart | undefined {
+  if (!payload) return undefined;
+  let found: GmailPart | undefined;
+  walk(payload, (part) => {
+    const isAttachment = Boolean(part.filename) || Boolean(part.body?.attachmentId);
+    if (!found && isAttachment && (part.partId ?? "") === partId) found = part;
+  });
+  return found;
+}
+
+/** Gmail の base64url (padding なし) → MCP の blob / image が要求する標準 base64。 */
+export function base64UrlToBase64(data: string): string {
+  const b64 = data.replace(/-/g, "+").replace(/_/g, "/");
+  return b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+}
+
 /** payload 全体から本文 (plain 優先 → html) と添付メタを抽出する。 */
 export function extractBody(payload: GmailPart | undefined): ExtractedBody {
   if (!payload) return { text: "", source: "none", attachments: [] };
@@ -130,6 +152,7 @@ export function extractBody(payload: GmailPart | undefined): ExtractedBody {
     const isAttachment = Boolean(part.filename) || Boolean(part.body?.attachmentId);
     if (isAttachment) {
       attachments.push({
+        part_id: part.partId ?? "",
         filename: part.filename || "(unnamed)",
         mimeType: part.mimeType ?? "application/octet-stream",
         size: part.body?.size ?? 0,
