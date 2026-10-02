@@ -4,7 +4,13 @@ import { assertNoForbiddenTools } from "./meta.js";
 import { listAccountSummaries, getAccount, reauthUrl } from "./accounts.js";
 import { refreshAccessToken } from "./google.js";
 import { accessTokenFor, gmailGet, gmailPost, gmailDelete, GmailAuthError } from "./gmail-api.js";
-import { extractBody, header, type GmailPart } from "./mime.js";
+import {
+  base64UrlToBase64,
+  extractBody,
+  findAttachmentPart,
+  header,
+  type GmailPart,
+} from "./mime.js";
 import { buildRawMessage, replySubject } from "./rfc822.js";
 import type { Env } from "./types.js";
 
@@ -14,10 +20,18 @@ const accountArg = z
   .optional()
   .describe('アカウントの alias (省略時 "default")。list_accounts で一覧できる');
 
+type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string }
+  | { type: "resource"; resource: { uri: string; mimeType: string; blob: string } };
+
 type ToolResult = {
-  content: { type: "text"; text: string }[];
+  content: ToolContent[];
   isError?: boolean;
 };
+
+// 添付 1 件の上限。base64 にすると 4/3 倍になって MCP の応答に載るので抑える。
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 function jsonResult(value: unknown): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value) }] };
@@ -54,6 +68,11 @@ interface GmailMessage {
 interface ThreadResponse {
   id: string;
   messages?: GmailMessage[];
+}
+
+interface AttachmentResponse {
+  data?: string;
+  size?: number;
 }
 
 interface LabelsResponse {
@@ -216,7 +235,8 @@ export function registerTools(server: McpServer, env: Env): void {
     {
       description:
         "スレッド内の全メッセージ (ヘッダ・本文・添付メタ) を取得する。本文は text/plain 優先、" +
-        "無ければ HTML をテキスト化。添付はメタ情報のみ (ダウンロード非対応)。",
+        "無ければ HTML をテキスト化。添付はメタ情報 (part_id / filename / mimeType / size) を返す。" +
+        "中身は get_attachment に message_id と part_id を渡して取得する。",
       inputSchema: z.object({
         thread_id: z.string().describe("search_threads が返した thread_id"),
         account: accountArg,
@@ -253,6 +273,65 @@ export function registerTools(server: McpServer, env: Env): void {
           format: "full",
         });
         return jsonResult({ thread_id: message.threadId, ...messageSummary(message) });
+      }),
+  );
+
+  register(
+    "get_attachment",
+    {
+      description:
+        "添付ファイル 1 件の中身を取得する (読み取りのみ)。get_thread / get_message が返す " +
+        "attachments[].part_id を渡す。画像は image、それ以外 (PDF 等) は embedded resource " +
+        "(base64 blob) で返す。上限 10 MB。",
+      inputSchema: z.object({
+        message_id: z.string().describe("添付が付いているメッセージの ID"),
+        part_id: z.string().describe("get_thread / get_message の attachments[].part_id"),
+        account: accountArg,
+      }),
+    },
+    async ({ message_id, part_id, account }) =>
+      run(async () => {
+        const alias = account ?? "default";
+        const token = await accessTokenFor(env, alias);
+        const message = await gmailGet<GmailMessage>(token, `messages/${message_id}`, {
+          format: "full",
+        });
+        const part = findAttachmentPart(message.payload, part_id);
+        if (!part) {
+          return errorResult(
+            `part_id "${part_id}" の添付がメッセージ ${message_id} にありません。` +
+              "get_message の attachments[].part_id を確認してください。",
+          );
+        }
+        const size = part.body?.size ?? 0;
+        if (size > MAX_ATTACHMENT_BYTES) {
+          return errorResult(
+            `添付が大きすぎます (${size} bytes、上限 ${MAX_ATTACHMENT_BYTES} bytes)。Gmail UI で開いてください。`,
+          );
+        }
+        // 小さい添付は payload に inline で入っている (attachmentId なし)
+        let data = part.body?.data;
+        if (!data && part.body?.attachmentId) {
+          const att = await gmailGet<AttachmentResponse>(
+            token,
+            `messages/${message_id}/attachments/${part.body.attachmentId}`,
+          );
+          data = att.data;
+        }
+        if (!data) return errorResult("添付の中身を取得できませんでした (data が空)。");
+
+        const filename = part.filename || "(unnamed)";
+        const mimeType = part.mimeType ?? "application/octet-stream";
+        const base64 = base64UrlToBase64(data);
+        const meta: ToolContent = {
+          type: "text",
+          text: JSON.stringify({ message_id, part_id, filename, mimeType, size }),
+        };
+        if (mimeType.toLowerCase().startsWith("image/")) {
+          return { content: [meta, { type: "image", data: base64, mimeType }] };
+        }
+        const uri = `gmail://${encodeURIComponent(alias)}/messages/${message_id}/parts/${part_id}/${encodeURIComponent(filename)}`;
+        return { content: [meta, { type: "resource", resource: { uri, mimeType, blob: base64 } }] };
       }),
   );
 

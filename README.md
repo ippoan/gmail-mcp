@@ -20,7 +20,8 @@ Gmail remote MCP — **read + draft only, no send** (TypeScript / Hono / Cloudfl
 |---|---|---|
 | `list_accounts` | read | 登録アカウント一覧。`check_auth: true` で refresh token の生存確認 |
 | `search_threads` | read | Gmail 検索構文で検索（default 10 / 上限 50 件） |
-| `get_thread` / `get_message` | read | 本文取得。text/plain 優先 → HTML タグ除去。ISO-2022-JP / Shift_JIS / EUC-JP 対応（charset の宣言が無い・違うときは自動判定）。添付はメタのみ |
+| `get_thread` / `get_message` | read | 本文取得。text/plain 優先 → HTML タグ除去。ISO-2022-JP / Shift_JIS / EUC-JP 対応（charset の宣言が無い・違うときは自動判定）。添付はメタ（`part_id` 付き） |
+| `get_attachment` | read | 添付 1 件の中身。`message_id` + `part_id`。画像は image、PDF 等は embedded resource（base64 blob）。上限 10 MB |
 | `list_labels` | read | ラベル一覧 |
 | `create_draft` | write | 下書き作成。`thread_id` で返信下書き（In-Reply-To / References 自動、Re: 補完） |
 | `list_drafts` | read | 下書き一覧 |
