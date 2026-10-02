@@ -25,6 +25,33 @@ describe("decodeBody", () => {
   it("falls back to UTF-8 for unknown charsets", () => {
     expect(decodeBody(b64url("fallback"), "x-unknown-charset")).toBe("fallback");
   });
+
+  // Issue #17: 8 bit の日本語を UTF-8 で読んで U+FFFD になっていた 3 経路
+  // "日本語です" の Shift_JIS / EUC-JP
+  const sjis = new Uint8Array([0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea, 0x82, 0xc5, 0x82, 0xb7]);
+  const eucjp = new Uint8Array([0xc6, 0xfc, 0xcb, 0xdc, 0xb8, 0xec, 0xa4, 0xc7, 0xa4, 0xb9]);
+  const iso2022jp = new Uint8Array([0x1b, 0x24, 0x42, 0x46, 0x7c, 0x4b, 0x5c, 0x1b, 0x28, 0x42]);
+
+  it("reads cp932 (WHATWG に無いラベル) as Shift_JIS", () => {
+    expect(decodeBody(bytesToB64url(sjis), "CP932")).toBe("日本語です");
+  });
+
+  it("detects Shift_JIS / EUC-JP / ISO-2022-JP when charset is not declared", () => {
+    expect(decodeBody(bytesToB64url(sjis), undefined)).toBe("日本語です");
+    expect(decodeBody(bytesToB64url(eucjp), undefined)).toBe("日本語です");
+    expect(decodeBody(bytesToB64url(iso2022jp), undefined)).toBe("日本");
+  });
+
+  it("detects the real charset when the declared one does not match the bytes", () => {
+    expect(decodeBody(bytesToB64url(sjis), "ISO-2022-JP")).toBe("日本語です");
+    expect(decodeBody(bytesToB64url(sjis), "UTF-8")).toBe("日本語です");
+    expect(decodeBody(b64url("実は UTF-8"), "Shift_JIS")).toBe("実は UTF-8");
+  });
+
+  it("keeps the lossy UTF-8 result when nothing matches", () => {
+    // 0xff はどの候補でも不正
+    expect(decodeBody(bytesToB64url(new Uint8Array([0x61, 0xff, 0xff])), undefined)).toBe("a��");
+  });
 });
 
 describe("extractBody", () => {

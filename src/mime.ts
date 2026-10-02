@@ -39,19 +39,53 @@ export function header(headers: GmailHeader[] | undefined, name: string): string
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value;
 }
 
-/** base64url → bytes → charset デコード (未対応 charset は UTF-8 fallback)。 */
+// 日本のメーラー / 業務システムが付けるが WHATWG のラベルに無い名前 (Issue #17)。
+// TextDecoder は "cp932" で throw する (workerd で実測)。
+const CHARSET_ALIASES: Record<string, string> = {
+  cp932: "shift_jis",
+  "x-ms-cp932": "shift_jis",
+  cp943: "shift_jis",
+  cp51932: "euc-jp",
+  cp50220: "iso-2022-jp",
+  cp50221: "iso-2022-jp",
+  "iso-2022-jp-ms": "iso-2022-jp",
+};
+
+/** fatal デコード。charset 未対応 / バイト列が charset に合わないときは undefined。 */
+function tryDecode(bytes: Uint8Array, label: string): string | undefined {
+  try {
+    return new TextDecoder(label, { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * base64url → bytes → charset デコード。
+ * 宣言された charset で読めないとき (宣言なし / 未対応の名前 / 宣言と実際が違う) は
+ * ISO-2022-JP (ESC があるとき) → UTF-8 → EUC-JP → Shift_JIS の順に試す (Issue #17)。
+ * EUC-JP を先に試すのは、EUC-JP のバイト列が Shift_JIS の半角カナとして通るため
+ * (逆は 0x81–0x9F の先行バイトで落ちる)。全部だめなら UTF-8 (U+FFFD 入り)。
+ */
 export function decodeBody(data: string, charset: string | undefined): string {
   const b64 = data.replace(/-/g, "+").replace(/_/g, "/");
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const label = (charset ?? "utf-8").toLowerCase();
-  try {
-    return new TextDecoder(label).decode(bytes);
-  } catch {
-    // ランタイムが charset 未対応 (TextDecoder が throw) の場合は UTF-8 で読む
-    return new TextDecoder("utf-8").decode(bytes);
+  const declared = charset?.toLowerCase();
+  const candidates = [
+    ...(declared ? [CHARSET_ALIASES[declared] ?? declared] : []),
+    // ISO-2022-JP は 7 bit なので UTF-8 としても通る。ESC があれば先に試す
+    ...(bytes.includes(0x1b) ? ["iso-2022-jp"] : []),
+    "utf-8",
+    "euc-jp",
+    "shift_jis",
+  ];
+  for (const label of candidates) {
+    const text = tryDecode(bytes, label);
+    if (text !== undefined) return text;
   }
+  return new TextDecoder("utf-8").decode(bytes);
 }
 
 function charsetOf(part: GmailPart): string | undefined {
